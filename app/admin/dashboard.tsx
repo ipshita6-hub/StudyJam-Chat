@@ -7,6 +7,8 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,6 +28,7 @@ export default function AdminDashboard() {
     pendingRequests: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     fetchStatistics();
@@ -75,33 +78,45 @@ export default function AdminDashboard() {
     }
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            // Try to clear storage, but don't fail if it errors
-            try {
-              await AsyncStorage.clear();
-            } catch (storageError) {
-              console.log('Storage clear error (non-critical):', storageError);
-            }
-            
-            // Sign out from Firebase
-            await signOut(auth);
-            
-            // Force navigation to login
-            router.replace('/login');
-          } catch (error) {
-            console.error('Error logging out:', error);
-            Alert.alert('Error', 'Failed to logout. Please try again.');
-          }
+  const handleLogout = () => {
+    if (Platform.OS === 'web') {
+      setShowLogoutModal(true);
+    } else {
+      Alert.alert('Logout', 'Are you sure you want to logout?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: confirmLogout,
         },
-      },
-    ]);
+      ]);
+    }
+  };
+
+  const confirmLogout = async () => {
+    try {
+      setShowLogoutModal(false);
+      
+      // Try to clear storage, but don't fail if it errors
+      try {
+        await AsyncStorage.clear();
+      } catch (storageError) {
+        console.log('Storage clear error (non-critical):', storageError);
+      }
+      
+      // Sign out from Firebase
+      await signOut(auth);
+      
+      // Force navigation to login
+      router.replace('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to logout. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to logout. Please try again.');
+      }
+    }
   };
 
   return (
@@ -225,6 +240,38 @@ export default function AdminDashboard() {
 
 
       </ScrollView>
+
+      {/* Logout Confirmation Modal for Web */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="log-out-outline" size={48} color="#FF4444" style={styles.modalIcon} />
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to logout?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setShowLogoutModal(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalLogoutButton}
+                onPress={confirmLogout}
+              >
+                <Text style={styles.modalLogoutText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -356,5 +403,68 @@ const styles = StyleSheet.create({
   statsLoadingText: {
     color: Colors.textGray,
     fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalLogoutButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+  },
+  modalLogoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
   },
 });

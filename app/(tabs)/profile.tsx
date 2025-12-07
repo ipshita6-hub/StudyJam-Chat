@@ -1,25 +1,108 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { signOut } from 'firebase/auth';
-import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { collection, getCountFromServer, getDocs, query, where } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/colors';
-import { auth } from '../../FirebaseConfig';
+import { auth, db } from '../../FirebaseConfig';
 import { useAuth } from '../../hooks/useAuth';
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, loading } = useAuth();
   const [isDarkMode, setIsDarkMode] = useState(true);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [stats, setStats] = useState({
+    studyGroups: 0,
+    messages: 0,
+    filesShared: 0,
+  });
+  const [statsLoading, setStatsLoading] = useState(true);
   const scrollViewRef = React.useRef<ScrollView>(null);
+
+  const fetchUserStats = useCallback(async () => {
+    if (!user?.uid) return;
+
+    try {
+      setStatsLoading(true);
+
+      // Set a timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Stats loading timeout')), 10000)
+      );
+
+      const statsPromise = (async () => {
+        // Count study groups (courses where user is a member)
+        const coursesRef = collection(db, 'courses');
+        const coursesQuery = query(coursesRef, where('members', 'array-contains', user.uid));
+        const coursesSnapshot = await getCountFromServer(coursesQuery);
+        const studyGroups = coursesSnapshot.data().count;
+
+        // Get course IDs for message counting
+        const coursesDocsSnapshot = await getDocs(coursesQuery);
+        
+        // Count messages in parallel across all courses
+        const messageCountPromises = coursesDocsSnapshot.docs.map(async (courseDoc) => {
+          try {
+            const messagesRef = collection(db, 'courses', courseDoc.id, 'messages');
+            const messagesQuery = query(messagesRef, where('senderId', '==', user.uid));
+            const messagesCount = await getCountFromServer(messagesQuery);
+            return messagesCount.data().count;
+          } catch (error) {
+            console.error(`Error counting messages for course ${courseDoc.id}:`, error);
+            return 0;
+          }
+        });
+
+        const messageCounts = await Promise.all(messageCountPromises);
+        const totalMessages = messageCounts.reduce((sum, count) => sum + count, 0);
+
+        // For files shared, we'll use 0 for now since we don't have file tracking yet
+        const filesShared = 0;
+
+        return {
+          studyGroups,
+          messages: totalMessages,
+          filesShared,
+        };
+      })();
+
+      // Race between stats fetching and timeout
+      const result = await Promise.race([statsPromise, timeoutPromise]);
+      setStats(result as typeof stats);
+    } catch (error) {
+      console.error('Error fetching user stats:', error);
+      // Set default values on error
+      setStats({
+        studyGroups: 0,
+        messages: 0,
+        filesShared: 0,
+      });
+    } finally {
+      setStatsLoading(false);
+    }
+  }, [user?.uid]);
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  // Refresh user data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      const refreshUser = async () => {
+        if (auth.currentUser) {
+          await auth.currentUser.reload();
+        }
+      };
+      refreshUser();
+      fetchUserStats();
+    }, [fetchUserStats])
+  );
 
   const handleSettingsPress = () => {
     setShowSettings(!showSettings);
@@ -34,9 +117,7 @@ export default function ProfileScreen() {
   const loadSettings = async () => {
     try {
       const theme = await AsyncStorage.getItem('theme');
-      const notifications = await AsyncStorage.getItem('notifications');
       if (theme !== null) setIsDarkMode(theme === 'dark');
-      if (notifications !== null) setNotificationsEnabled(notifications === 'true');
     } catch (error) {
       console.error('Error loading settings:', error);
     }
@@ -47,49 +128,57 @@ export default function ProfileScreen() {
       const newTheme = !isDarkMode;
       setIsDarkMode(newTheme);
       await AsyncStorage.setItem('theme', newTheme ? 'dark' : 'light');
-      Alert.alert('Theme Changed', `Switched to ${newTheme ? 'Dark' : 'Light'} mode. Restart app to see full effect.`);
+      
+      const message = `Switched to ${newTheme ? 'Dark' : 'Light'} mode. Restart app to see full effect.`;
+      if (Platform.OS === 'web') {
+        alert(`Theme Changed\n\n${message}`);
+      } else {
+        Alert.alert('Theme Changed', message);
+      }
     } catch (error) {
       console.error('Error saving theme:', error);
     }
   };
 
-  const toggleNotifications = async () => {
-    try {
-      const newValue = !notificationsEnabled;
-      setNotificationsEnabled(newValue);
-      await AsyncStorage.setItem('notifications', newValue.toString());
-    } catch (error) {
-      console.error('Error saving notifications setting:', error);
+  const handleLogout = () => {
+    if (Platform.OS === 'web') {
+      setShowLogoutModal(true);
+    } else {
+      Alert.alert('Logout', 'Are you sure you want to logout?', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: confirmLogout,
+        },
+      ]);
     }
   };
 
-  const handleLogout = async () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            // Try to clear storage, but don't fail if it errors
-            try {
-              await AsyncStorage.clear();
-            } catch (storageError) {
-              console.log('Storage clear error (non-critical):', storageError);
-            }
-            
-            // Sign out from Firebase
-            await signOut(auth);
-            
-            // Force navigation to login
-            router.replace('/login');
-          } catch (error) {
-            console.error('Error logging out:', error);
-            Alert.alert('Error', 'Failed to logout. Please try again.');
-          }
-        },
-      },
-    ]);
+  const confirmLogout = async () => {
+    try {
+      setShowLogoutModal(false);
+      
+      // Try to clear storage, but don't fail if it errors
+      try {
+        await AsyncStorage.clear();
+      } catch (storageError) {
+        console.log('Storage clear error (non-critical):', storageError);
+      }
+      
+      // Sign out from Firebase
+      await signOut(auth);
+      
+      // Force navigation to login
+      router.replace('/login');
+    } catch (error) {
+      console.error('Error logging out:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to logout. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to logout. Please try again.');
+      }
+    }
   };
 
   if (loading) {
@@ -127,12 +216,11 @@ export default function ProfileScreen() {
           <View style={styles.avatarContainer}>
             <View style={styles.avatarWrapper}>
               <View style={styles.avatarPlaceholder}>
-                <Ionicons name="person" size={60} color="#555" />
+                <Text style={styles.avatarInitial}>
+                  {(user?.displayName || user?.email || 'U').charAt(0).toUpperCase()}
+                </Text>
               </View>
             </View>
-            <TouchableOpacity style={styles.changePhotoBtn}>
-              <Text style={styles.changePhotoText}>Change Photo</Text>
-            </TouchableOpacity>
           </View>
 
           <Text style={styles.name}>{user?.displayName || 'Student'}</Text>
@@ -140,24 +228,39 @@ export default function ProfileScreen() {
             Computer Science Student | Study Group Enthusiast | Always ready to help with algorithms and data structures!
           </Text>
           <Text style={styles.email}>{user?.email || 'No email'}</Text>
-          <Text style={styles.joinedDate}>Joined on March 15, 2024</Text>
+          <Text style={styles.joinedDate}>
+            Joined on {user?.metadata?.creationTime 
+              ? new Date(user.metadata.creationTime).toLocaleDateString('en-US', { 
+                  year: 'numeric', 
+                  month: 'long', 
+                  day: 'numeric' 
+                })
+              : 'Unknown'}
+          </Text>
         </View>
 
         {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>12</Text>
-            <Text style={styles.statLabel}>Study Groups</Text>
+        {statsLoading ? (
+          <View style={styles.statsLoadingContainer}>
+            <ActivityIndicator size="small" color={Colors.primary} />
+            <Text style={styles.statsLoadingText}>Loading stats...</Text>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>847</Text>
-            <Text style={styles.statLabel}>Messages</Text>
+        ) : (
+          <View style={styles.statsContainer}>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{stats.studyGroups}</Text>
+              <Text style={styles.statLabel}>Study Groups</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{stats.messages}</Text>
+              <Text style={styles.statLabel}>Messages</Text>
+            </View>
+            <View style={styles.statItem}>
+              <Text style={styles.statNumber}>{stats.filesShared}</Text>
+              <Text style={styles.statLabel}>Files Shared</Text>
+            </View>
           </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>23</Text>
-            <Text style={styles.statLabel}>Files Shared</Text>
-          </View>
-        </View>
+        )}
 
         {/* Actions */}
         <View style={styles.actionsContainer}>
@@ -166,10 +269,6 @@ export default function ProfileScreen() {
             onPress={() => router.push('/edit-profile')}
           >
             <Text style={styles.primaryButtonText}>Edit Profile</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.secondaryButton}>
-            <Text style={styles.secondaryButtonText}>View Study History</Text>
           </TouchableOpacity>
         </View>
 
@@ -185,16 +284,6 @@ export default function ProfileScreen() {
               </View>
               <View style={[styles.toggleButton, isDarkMode && styles.toggleButtonActive]}>
                 <View style={[styles.toggleCircle, isDarkMode && styles.toggleCircleActive]} />
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.settingItem} onPress={toggleNotifications}>
-              <View style={styles.settingLeft}>
-                <Ionicons name="notifications" size={22} color={Colors.primary} />
-                <Text style={styles.settingText}>Notifications</Text>
-              </View>
-              <View style={[styles.toggleButton, notificationsEnabled && styles.toggleButtonActive]}>
-                <View style={[styles.toggleCircle, notificationsEnabled && styles.toggleCircleActive]} />
               </View>
             </TouchableOpacity>
 
@@ -235,6 +324,38 @@ export default function ProfileScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Logout Confirmation Modal for Web */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="log-out-outline" size={48} color="#FF4444" style={styles.modalIcon} />
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to logout?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setShowLogoutModal(false)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalLogoutButton}
+                onPress={confirmLogout}
+              >
+                <Text style={styles.modalLogoutText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -290,13 +411,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  changePhotoBtn: {
-    paddingVertical: 4,
-  },
-  changePhotoText: {
+  avatarInitial: {
+    fontSize: 48,
+    fontWeight: 'bold',
     color: Colors.primary,
-    fontSize: 14,
-    fontWeight: '500',
   },
   name: {
     fontSize: 24,
@@ -319,6 +437,17 @@ const styles = StyleSheet.create({
   joinedDate: {
     fontSize: 12,
     color: '#555',
+  },
+  statsLoadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+    gap: 12,
+  },
+  statsLoadingText: {
+    color: Colors.textGray,
+    fontSize: 14,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -416,5 +545,68 @@ const styles = StyleSheet.create({
   },
   toggleCircleActive: {
     alignSelf: 'flex-end',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalLogoutButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+  },
+  modalLogoutText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
   },
 });

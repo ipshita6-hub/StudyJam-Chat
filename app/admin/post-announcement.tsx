@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,6 +29,7 @@ export default function PostAnnouncementScreen() {
   const [type, setType] = useState<AnnouncementType>('info');
   const [priority, setPriority] = useState<AnnouncementPriority>('medium');
   const [loading, setLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
 
   const announcementTypes: { value: AnnouncementType; label: string; icon: string; color: string }[] = [
     { value: 'info', label: 'Info', icon: 'information-circle', color: '#4A90E2' },
@@ -42,20 +44,28 @@ export default function PostAnnouncementScreen() {
     { value: 'high', label: 'High' },
   ];
 
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
   const handlePostAnnouncement = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please enter a title');
+      showAlert('Error', 'Please enter a title');
       return;
     }
 
     if (!message.trim()) {
-      Alert.alert('Error', 'Please enter a message');
+      showAlert('Error', 'Please enter a message');
       return;
     }
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      Alert.alert('Error', 'You must be logged in to post announcements');
+      showAlert('Error', 'You must be logged in to post announcements');
       return;
     }
 
@@ -75,31 +85,48 @@ export default function PostAnnouncementScreen() {
         viewCount: 0,
       });
 
-      Alert.alert(
-        'Success',
-        'Announcement posted successfully!',
-        [
-          {
-            text: 'Post Another',
-            onPress: () => {
-              setTitle('');
-              setMessage('');
-              setType('info');
-              setPriority('medium');
+      if (Platform.OS === 'web') {
+        setShowSuccessModal(true);
+      } else {
+        Alert.alert(
+          'Success',
+          'Announcement posted successfully!',
+          [
+            {
+              text: 'Post Another',
+              onPress: () => {
+                setTitle('');
+                setMessage('');
+                setType('info');
+                setPriority('medium');
+              },
             },
-          },
-          {
-            text: 'Go Back',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+            {
+              text: 'Go Back',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      }
     } catch (error: any) {
       console.error('Error posting announcement:', error);
-      Alert.alert('Error', error.message || 'Failed to post announcement');
+      showAlert('Error', error.message || 'Failed to post announcement');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handlePostAnother = () => {
+    setShowSuccessModal(false);
+    setTitle('');
+    setMessage('');
+    setType('info');
+    setPriority('medium');
+  };
+
+  const handleGoBack = () => {
+    setShowSuccessModal(false);
+    router.back();
   };
 
   return (
@@ -273,6 +300,40 @@ export default function PostAnnouncementScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal for Web */}
+      <Modal
+        visible={showSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.successIcon}>
+              <Ionicons name="checkmark-circle" size={64} color="#4CAF50" />
+            </View>
+            <Text style={styles.modalTitle}>Success!</Text>
+            <Text style={styles.modalMessage}>
+              Announcement posted successfully!
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={handlePostAnother}
+              >
+                <Text style={styles.modalSecondaryText}>Post Another</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={handleGoBack}
+              >
+                <Text style={styles.modalPrimaryText}>Go Back</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -469,6 +530,69 @@ const styles = StyleSheet.create({
   postButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: Colors.black,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  successIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalPrimaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFD700',
+    alignItems: 'center',
+  },
+  modalPrimaryText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: Colors.black,
   },
 });

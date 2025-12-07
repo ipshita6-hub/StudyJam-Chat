@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -37,26 +38,35 @@ export default function CreateCourseScreen() {
   const [category, setCategory] = useState('');
   const [maxMembers, setMaxMembers] = useState('50');
   const [loading, setLoading] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
 
   const handleCreateCourse = async () => {
     if (!name.trim()) {
-      Alert.alert('Error', 'Please enter a course name');
+      showAlert('Error', 'Please enter a course name');
       return;
     }
 
     if (!description.trim()) {
-      Alert.alert('Error', 'Please enter a course description');
+      showAlert('Error', 'Please enter a course description');
       return;
     }
 
     if (!category) {
-      Alert.alert('Error', 'Please select a category');
+      showAlert('Error', 'Please select a category');
       return;
     }
 
     const currentUser = auth.currentUser;
     if (!currentUser) {
-      Alert.alert('Error', 'You must be logged in to create a course');
+      showAlert('Error', 'You must be logged in to create a course');
       return;
     }
 
@@ -84,31 +94,48 @@ export default function CreateCourseScreen() {
         updatedAt: serverTimestamp(),
       });
 
-      Alert.alert(
-        'Success',
-        'Course created successfully!',
-        [
-          {
-            text: 'Create Another',
-            onPress: () => {
-              setName('');
-              setDescription('');
-              setCategory('');
-              setMaxMembers('50');
+      if (Platform.OS === 'web') {
+        setShowSuccessModal(true);
+      } else {
+        Alert.alert(
+          'Success',
+          'Course created successfully!',
+          [
+            {
+              text: 'Create Another',
+              onPress: () => {
+                setName('');
+                setDescription('');
+                setCategory('');
+                setMaxMembers('50');
+              },
             },
-          },
-          {
-            text: 'Go Back',
-            onPress: () => router.back(),
-          },
-        ]
-      );
+            {
+              text: 'Go Back',
+              onPress: () => router.back(),
+            },
+          ]
+        );
+      }
     } catch (error: any) {
       console.error('Error creating course:', error);
-      Alert.alert('Error', error.message || 'Failed to create course');
+      showAlert('Error', error.message || 'Failed to create course');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCreateAnother = () => {
+    setShowSuccessModal(false);
+    setName('');
+    setDescription('');
+    setCategory('');
+    setMaxMembers('50');
+  };
+
+  const handleGoBack = () => {
+    setShowSuccessModal(false);
+    router.back();
   };
 
   return (
@@ -265,6 +292,40 @@ export default function CreateCourseScreen() {
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* Success Modal for Web */}
+      <Modal
+        visible={showSuccessModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowSuccessModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.successIcon}>
+              <Ionicons name="checkmark-circle" size={64} color="#4CAF50" />
+            </View>
+            <Text style={styles.modalTitle}>Success!</Text>
+            <Text style={styles.modalMessage}>
+              Course created successfully!
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalSecondaryButton}
+                onPress={handleCreateAnother}
+              >
+                <Text style={styles.modalSecondaryText}>Create Another</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalPrimaryButton}
+                onPress={handleGoBack}
+              >
+                <Text style={styles.modalPrimaryText}>Go Back</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -455,6 +516,69 @@ const styles = StyleSheet.create({
   createButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: Colors.black,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  successIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalSecondaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalSecondaryText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalPrimaryButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFD700',
+    alignItems: 'center',
+  },
+  modalPrimaryText: {
+    fontSize: 15,
+    fontWeight: '600',
     color: Colors.black,
   },
 });

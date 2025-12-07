@@ -3,23 +3,26 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   addDoc,
   collection,
+  deleteDoc,
+  doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
   updateDoc,
-  doc,
 } from 'firebase/firestore';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,6 +37,7 @@ interface Message {
   timestamp: any;
   type: 'text' | 'file' | 'video';
   reactions: any[];
+  pinned?: boolean;
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '👏'];
@@ -46,8 +50,10 @@ export default function CourseChatScreen() {
   const [message, setMessage] = useState('');
   const [selectedMessageId, setSelectedMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [showMessageOptions, setShowMessageOptions] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
-  const currentUser = auth.currentUser;
+  
+  const getCurrentUser = () => auth.currentUser;
 
   useEffect(() => {
     if (!courseId) return;
@@ -60,7 +66,15 @@ export default function CourseChatScreen() {
         id: doc.id,
         ...doc.data(),
       })) as Message[];
-      setMessages(messagesData);
+      
+      // Sort messages: pinned first, then by timestamp
+      const sortedMessages = messagesData.sort((a, b) => {
+        if (a.pinned && !b.pinned) return -1;
+        if (!a.pinned && b.pinned) return 1;
+        return 0;
+      });
+      
+      setMessages(sortedMessages);
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
@@ -70,6 +84,7 @@ export default function CourseChatScreen() {
   }, [courseId]);
 
   const handleSendMessage = async () => {
+    const currentUser = getCurrentUser();
     if (!message.trim() || !courseId || !currentUser) return;
 
     const messageContent = message.trim();
@@ -83,6 +98,7 @@ export default function CourseChatScreen() {
         type: 'text',
         timestamp: serverTimestamp(),
         reactions: [],
+        pinned: false,
       });
 
       await updateDoc(doc(db, 'courses', courseId), {
@@ -92,6 +108,121 @@ export default function CourseChatScreen() {
     } catch (error) {
       console.error('Error sending message:', error);
       setMessage(messageContent);
+    }
+  };
+
+  const handleTogglePin = async (messageId: string, currentPinned: boolean) => {
+    if (!courseId) {
+      console.log('No courseId available');
+      return;
+    }
+
+    console.log('Toggling pin for message:', messageId, 'Current pinned:', currentPinned);
+
+    try {
+      const messageRef = doc(db, 'courses', courseId, 'messages', messageId);
+      await updateDoc(messageRef, {
+        pinned: !currentPinned,
+      });
+      console.log('Pin toggled successfully');
+      setShowMessageOptions(null);
+    } catch (error) {
+      console.error('Error toggling pin:', error);
+    }
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!courseId) {
+      console.log('No courseId available');
+      return;
+    }
+
+    const confirmDelete = Platform.OS === 'web' 
+      ? window.confirm('Are you sure you want to delete this message?')
+      : true;
+
+    if (!confirmDelete && Platform.OS === 'web') return;
+
+    if (Platform.OS !== 'web') {
+      Alert.alert(
+        'Delete Message',
+        'Are you sure you want to delete this message?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: async () => {
+              await performDelete(messageId);
+            },
+          },
+        ]
+      );
+    } else {
+      await performDelete(messageId);
+    }
+  };
+
+  const performDelete = async (messageId: string) => {
+    try {
+      console.log('Deleting message:', messageId);
+      const messageRef = doc(db, 'courses', courseId, 'messages', messageId);
+      await deleteDoc(messageRef);
+      console.log('Message deleted successfully');
+      setShowMessageOptions(null);
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to delete message. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to delete message. Please try again.');
+      }
+    }
+  };
+
+  const handleAddReaction = async (messageId: string, emoji: string) => {
+    const currentUser = getCurrentUser();
+    if (!courseId || !currentUser) {
+      console.log('Missing courseId or currentUser');
+      return;
+    }
+
+    console.log('Adding reaction:', emoji, 'to message:', messageId);
+
+    try {
+      const messageRef = doc(db, 'courses', courseId, 'messages', messageId);
+      const message = messages.find(m => m.id === messageId);
+      
+      if (!message) {
+        console.log('Message not found');
+        return;
+      }
+
+      const existingReactions = message.reactions || [];
+      const userReactionIndex = existingReactions.findIndex(
+        (r: any) => r.userId === currentUser.uid && r.emoji === emoji
+      );
+
+      let updatedReactions;
+      if (userReactionIndex >= 0) {
+        // Remove reaction if already exists
+        console.log('Removing existing reaction');
+        updatedReactions = existingReactions.filter((_: any, i: number) => i !== userReactionIndex);
+      } else {
+        // Add new reaction
+        console.log('Adding new reaction');
+        updatedReactions = [...existingReactions, { userId: currentUser.uid, emoji }];
+      }
+
+      await updateDoc(messageRef, {
+        reactions: updatedReactions,
+      });
+      
+      console.log('Reaction updated successfully');
+      setSelectedMessageId(null);
+      setShowMessageOptions(null);
+    } catch (error) {
+      console.error('Error adding reaction:', error);
     }
   };
 
@@ -134,6 +265,7 @@ export default function CourseChatScreen() {
             </View>
           )}
           {messages.map((msg) => {
+            const currentUser = getCurrentUser();
             const isMine = msg.senderId === currentUser?.uid;
             const messageTime = msg.timestamp?.toDate?.()?.toLocaleTimeString([], {
               hour: '2-digit',
@@ -142,34 +274,68 @@ export default function CourseChatScreen() {
 
             return (
               <View key={msg.id}>
+                {msg.pinned && (
+                  <View style={styles.pinnedBadge}>
+                    <Ionicons name="pin" size={12} color={Colors.primary} />
+                    <Text style={styles.pinnedText}>Pinned Message</Text>
+                  </View>
+                )}
                 <View style={[styles.messageRow, isMine && styles.messageRowMine]}>
                   {!isMine && (
                     <View style={styles.senderInfo}>
                       <Text style={styles.senderName}>{msg.senderName}</Text>
                     </View>
                   )}
-                  <TouchableOpacity
-                    activeOpacity={0.8}
-                    onLongPress={() => setSelectedMessageId(msg.id)}
-                    style={[styles.messageBubble, isMine && styles.messageBubbleMine]}
+                  <Pressable
+                    onLongPress={() => {
+                      console.log('Long press detected on message:', msg.id);
+                      setShowMessageOptions(msg.id);
+                      setSelectedMessageId(null);
+                    }}
+                    delayLongPress={400}
                   >
-                    {selectedMessageId === msg.id && (
-                      <View style={styles.reactionPickerContainer}>
-                        {REACTION_EMOJIS.map((emoji) => (
-                          <TouchableOpacity
-                            key={emoji}
-                            style={styles.reactionOption}
-                            onPress={() => setSelectedMessageId(null)}
-                          >
-                            <Text style={styles.reactionEmoji}>{emoji}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                    <Text style={[styles.messageText, isMine && styles.messageTextMine]}>
-                      {msg.content}
-                    </Text>
-                  </TouchableOpacity>
+                    <View
+                      style={[
+                        styles.messageBubble, 
+                        isMine && styles.messageBubbleMine,
+                        msg.pinned && styles.messageBubblePinned
+                      ]}
+                    >
+                      <Text style={[styles.messageText, isMine && styles.messageTextMine]}>
+                        {msg.content}
+                      </Text>
+                      {msg.reactions && msg.reactions.length > 0 && (
+                        <View style={styles.reactionsContainer}>
+                          {Object.entries(
+                            msg.reactions.reduce((acc: any, r: any) => {
+                              acc[r.emoji] = (acc[r.emoji] || 0) + 1;
+                              return acc;
+                            }, {})
+                          ).map(([emoji, count]) => {
+                            const hasUserReacted = msg.reactions.some(
+                              (r: any) => r.userId === currentUser?.uid && r.emoji === emoji
+                            );
+                            return (
+                              <TouchableOpacity
+                                key={emoji}
+                                style={[
+                                  styles.reactionBadge,
+                                  hasUserReacted && styles.reactionBadgeActive
+                                ]}
+                                onPress={() => {
+                                  console.log('Reaction badge pressed:', emoji);
+                                  handleAddReaction(msg.id, emoji);
+                                }}
+                              >
+                                <Text style={styles.reactionBadgeEmoji}>{emoji}</Text>
+                                <Text style={styles.reactionBadgeCount}>{String(count)}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  </Pressable>
                   {isMine && (
                     <View style={styles.messageStatus}>
                       <Text style={styles.messageTime}>{messageTime}</Text>
@@ -203,13 +369,107 @@ export default function CourseChatScreen() {
             <Ionicons name="send" size={20} color={message.trim() ? Colors.black : Colors.textGray} />
           </TouchableOpacity>
         </View>
-
-        {selectedMessageId && (
-          <TouchableWithoutFeedback onPress={() => setSelectedMessageId(null)}>
-            <View style={styles.backdrop} />
-          </TouchableWithoutFeedback>
-        )}
       </KeyboardAvoidingView>
+
+      {/* Message Options Modal */}
+      <Modal
+        visible={showMessageOptions !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowMessageOptions(null)}
+      >
+        <Pressable 
+          style={styles.modalBackdrop}
+          onPress={() => setShowMessageOptions(null)}
+        >
+          <View style={styles.modalContent}>
+            {(() => {
+              const msg = messages.find(m => m.id === showMessageOptions);
+              if (!msg) return null;
+              const currentUser = getCurrentUser();
+              const isMine = msg.senderId === currentUser?.uid;
+              
+              return (
+                <>
+                  <TouchableOpacity
+                    style={styles.modalOption}
+                    onPress={() => handleTogglePin(msg.id, msg.pinned || false)}
+                  >
+                    <Ionicons 
+                      name={msg.pinned ? "pin" : "pin-outline"} 
+                      size={24} 
+                      color={Colors.white} 
+                    />
+                    <Text style={styles.modalOptionText}>
+                      {msg.pinned ? 'Unpin Message' : 'Pin Message'}
+                    </Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.modalOption}
+                    onPress={() => {
+                      setShowMessageOptions(null);
+                      setSelectedMessageId(msg.id);
+                    }}
+                  >
+                    <Ionicons name="happy-outline" size={24} color={Colors.white} />
+                    <Text style={styles.modalOptionText}>Add Reaction</Text>
+                  </TouchableOpacity>
+                  
+                  {isMine && (
+                    <TouchableOpacity
+                      style={[styles.modalOption, styles.modalOptionDanger]}
+                      onPress={() => handleDeleteMessage(msg.id)}
+                    >
+                      <Ionicons name="trash-outline" size={24} color="#FF4444" />
+                      <Text style={[styles.modalOptionText, { color: '#FF4444' }]}>Delete Message</Text>
+                    </TouchableOpacity>
+                  )}
+                  
+                  <TouchableOpacity
+                    style={[styles.modalOption, styles.modalOptionCancel]}
+                    onPress={() => setShowMessageOptions(null)}
+                  >
+                    <Text style={styles.modalCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </>
+              );
+            })()}
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Reaction Picker Modal */}
+      <Modal
+        visible={selectedMessageId !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMessageId(null)}
+      >
+        <Pressable 
+          style={styles.modalBackdrop}
+          onPress={() => setSelectedMessageId(null)}
+        >
+          <View style={styles.reactionPickerModal}>
+            <Text style={styles.reactionPickerTitle}>Add Reaction</Text>
+            <View style={styles.reactionPickerRow}>
+              {REACTION_EMOJIS.map((emoji) => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={styles.reactionPickerOption}
+                  onPress={() => {
+                    if (selectedMessageId) {
+                      handleAddReaction(selectedMessageId, emoji);
+                    }
+                  }}
+                >
+                  <Text style={styles.reactionPickerEmoji}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -290,17 +550,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     padding: 12,
-    maxWidth: '80%',
+    paddingHorizontal: 16,
     position: 'relative',
   },
   messageBubbleMine: {
     backgroundColor: Colors.primary,
     borderColor: Colors.primary,
   },
+  messageBubblePinned: {
+    borderColor: Colors.primary,
+    borderWidth: 2,
+  },
+  pinnedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 4,
+  },
+  pinnedText: {
+    fontSize: 11,
+    color: Colors.primary,
+    fontWeight: '600',
+  },
+
   messageText: {
-    fontSize: 14,
+    fontSize: 15,
     color: Colors.white,
-    lineHeight: 20,
+    lineHeight: 22,
+    flexWrap: 'wrap',
+    flexShrink: 1,
   },
   messageTextMine: {
     color: Colors.black,
@@ -315,22 +593,34 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textGray,
   },
-  reactionPickerContainer: {
-    position: 'absolute',
-    top: -50,
-    left: 0,
-    backgroundColor: '#2A2A2A',
-    borderRadius: 24,
+
+  reactionsContainer: {
     flexDirection: 'row',
-    padding: 8,
-    gap: 8,
-    zIndex: 100,
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 8,
   },
-  reactionOption: {
-    padding: 4,
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    gap: 4,
   },
-  reactionEmoji: {
-    fontSize: 20,
+  reactionBadgeActive: {
+    backgroundColor: 'rgba(255, 215, 0, 0.3)',
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  reactionBadgeEmoji: {
+    fontSize: 14,
+  },
+  reactionBadgeCount: {
+    fontSize: 12,
+    color: Colors.white,
+    fontWeight: '600',
   },
   inputContainer: {
     flexDirection: 'row',
@@ -368,12 +658,66 @@ const styles = StyleSheet.create({
   sendButtonDisabled: {
     backgroundColor: Colors.border,
   },
-  backdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 5,
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 16,
+    padding: 8,
+    minWidth: 250,
+    maxWidth: '80%',
+  },
+  modalOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+  },
+  modalOptionText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  modalOptionDanger: {
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+  },
+  modalOptionCancel: {
+    borderTopWidth: 1,
+    borderTopColor: '#444',
+    justifyContent: 'center',
+    marginTop: 8,
+  },
+  modalCancelText: {
+    color: Colors.textGray,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  reactionPickerModal: {
+    backgroundColor: '#2A2A2A',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+  },
+  reactionPickerTitle: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  reactionPickerRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  reactionPickerOption: {
+    padding: 8,
+  },
+  reactionPickerEmoji: {
+    fontSize: 32,
   },
 });

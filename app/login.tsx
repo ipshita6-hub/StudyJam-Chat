@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Google from 'expo-auth-session/providers/google';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -34,16 +34,45 @@ export default function LoginScreen() {
     clientId: process.env.EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID,
   });
 
+  const handleGoogleSignIn = useCallback(async (idToken?: string) => {
+    if (!idToken) {
+      promptAsync();
+      return;
+    }
+
+    setLoading(true);
+    const result = await authService.signInWithGoogle(idToken);
+    setLoading(false);
+
+    if (result.success) {
+      router.replace('/(tabs)/home');
+    } else {
+      if (Platform.OS === 'web') {
+        alert(`Google Sign-In Failed\n\n${result.error}`);
+      } else {
+        Alert.alert('Google Sign-In Failed', result.error);
+      }
+    }
+  }, [promptAsync, router]);
+
   useEffect(() => {
     if (response?.type === 'success') {
       const { id_token } = response.params;
       handleGoogleSignIn(id_token);
     }
-  }, [response]);
+  }, [handleGoogleSignIn, response]);
+
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showAlert('Error', 'Please fill in all fields');
       return;
     }
 
@@ -70,30 +99,13 @@ export default function LoginScreen() {
           // User document doesn't exist, go to home
           router.replace('/(tabs)/home');
         }
-      } catch (error) {
+      } catch {
         setLoading(false);
         router.replace('/(tabs)/home');
       }
     } else {
       setLoading(false);
-      Alert.alert('Login Failed', result.error);
-    }
-  };
-
-  const handleGoogleSignIn = async (idToken?: string) => {
-    if (!idToken) {
-      promptAsync();
-      return;
-    }
-
-    setLoading(true);
-    const result = await authService.signInWithGoogle(idToken);
-    setLoading(false);
-
-    if (result.success) {
-      router.replace('/(tabs)/home');
-    } else {
-      Alert.alert('Google Sign-In Failed', result.error);
+      showAlert('Login Failed', result.error || 'An error occurred during login');
     }
   };
 
@@ -174,7 +186,7 @@ export default function LoginScreen() {
         <Pagination activeIndex={0} total={3} />
 
         <View style={styles.signUpContainer}>
-          <Text style={styles.signUpText}>Don't have an account? </Text>
+          <Text style={styles.signUpText}>Don&apos;t have an account? </Text>
           <TouchableOpacity onPress={handleSignUp}>
             <Text style={styles.signUpLink}>Sign Up</Text>
           </TouchableOpacity>

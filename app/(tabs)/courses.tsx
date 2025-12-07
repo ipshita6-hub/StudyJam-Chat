@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { arrayRemove, collection, doc, increment, onSnapshot, query, updateDoc, where } from 'firebase/firestore';
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/colors';
 import { auth, db } from '../../FirebaseConfig';
@@ -24,6 +24,7 @@ export default function CoursesScreen() {
   const [myCourses, setMyCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [leavingCourse, setLeavingCourse] = useState<string | null>(null);
+  const [confirmLeaveCourse, setConfirmLeaveCourse] = useState<Course | null>(null);
   const currentUser = auth.currentUser;
 
   useEffect(() => {
@@ -59,35 +60,53 @@ export default function CoursesScreen() {
   const handleLeaveCourse = (course: Course) => {
     if (!currentUser) return;
 
-    Alert.alert(
-      'Leave Course',
-      `Are you sure you want to leave "${course.name}"? You will need to request to join again.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Leave',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setLeavingCourse(course.id);
-              console.log('Leaving course:', course.id);
-              const courseRef = doc(db, 'courses', course.id);
-              await updateDoc(courseRef, {
-                members: arrayRemove(currentUser.uid),
-                enrolledCount: increment(-1),
-              });
-              console.log('Successfully left course');
-              Alert.alert('Success', 'You have left the course. You can request to join again from Browse Courses.');
-            } catch (error) {
-              console.error('Error leaving course:', error);
-              Alert.alert('Error', 'Failed to leave course. Please try again.');
-            } finally {
-              setLeavingCourse(null);
-            }
+    if (Platform.OS === 'web') {
+      setConfirmLeaveCourse(course);
+    } else {
+      Alert.alert(
+        'Leave Course',
+        `Are you sure you want to leave "${course.name}"? You will need to request to join again.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Leave',
+            style: 'destructive',
+            onPress: () => confirmLeave(course),
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
+  };
+
+  const confirmLeave = async (course: Course) => {
+    if (!currentUser) return;
+
+    try {
+      setLeavingCourse(course.id);
+      setConfirmLeaveCourse(null);
+      console.log('Leaving course:', course.id);
+      const courseRef = doc(db, 'courses', course.id);
+      await updateDoc(courseRef, {
+        members: arrayRemove(currentUser.uid),
+        enrolledCount: increment(-1),
+      });
+      console.log('Successfully left course');
+      
+      if (Platform.OS === 'web') {
+        alert('You have left the course. You can request to join again from Browse Courses.');
+      } else {
+        Alert.alert('Success', 'You have left the course. You can request to join again from Browse Courses.');
+      }
+    } catch (error) {
+      console.error('Error leaving course:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to leave course. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to leave course. Please try again.');
+      }
+    } finally {
+      setLeavingCourse(null);
+    }
   };
 
   return (
@@ -156,6 +175,38 @@ export default function CoursesScreen() {
           ))}
         </ScrollView>
       )}
+
+      {/* Leave Course Confirmation Modal for Web */}
+      <Modal
+        visible={confirmLeaveCourse !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmLeaveCourse(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="exit-outline" size={48} color="#FF4444" style={styles.modalIcon} />
+            <Text style={styles.modalTitle}>Leave Course</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to leave "{confirmLeaveCourse?.name}"? You will need to request to join again.
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setConfirmLeaveCourse(null)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalLeaveButton}
+                onPress={() => confirmLeaveCourse && confirmLeave(confirmLeaveCourse)}
+              >
+                <Text style={styles.modalLeaveText}>Leave</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -301,5 +352,69 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  modalIcon: {
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalLeaveButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+  },
+  modalLeaveText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
   },
 });

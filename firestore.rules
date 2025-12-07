@@ -22,11 +22,12 @@ service cloud.firestore {
       allow delete: if isAuthenticated();
 
       // Course messages subcollection (CHAT)
+      // Supports: send, pin/unpin, reactions, delete
       match /messages/{messageId} {
         allow read: if isAuthenticated();
         allow create: if isAuthenticated();
-        allow update: if isAuthenticated();
-        allow delete: if isAuthenticated();
+        allow update: if isAuthenticated(); // For pin/unpin and reactions
+        allow delete: if isAuthenticated(); // For delete message
       }
 
       // Course enrollments subcollection

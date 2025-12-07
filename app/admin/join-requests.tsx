@@ -13,6 +13,8 @@ import React, { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
+    Modal,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -39,6 +41,7 @@ export default function JoinRequestsScreen() {
   const [requests, setRequests] = useState<JoinRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState<string | null>(null);
+  const [confirmReject, setConfirmReject] = useState<JoinRequest | null>(null);
 
   useEffect(() => {
     const requestsRef = collection(db, 'joinRequests');
@@ -109,33 +112,51 @@ export default function JoinRequestsScreen() {
   };
 
   const handleReject = async (request: JoinRequest) => {
-    Alert.alert(
-      'Reject Request',
-      `Are you sure you want to reject ${request.userName}'s request to join ${request.courseName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Reject',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setProcessing(request.id);
-              const requestRef = doc(db, 'joinRequests', request.id);
-              await updateDoc(requestRef, {
-                status: 'rejected',
-                rejectedAt: serverTimestamp(),
-              });
-              Alert.alert('Request Rejected', 'The join request has been rejected.');
-            } catch (error) {
-              console.error('Error rejecting request:', error);
-              Alert.alert('Error', 'Failed to reject request.');
-            } finally {
-              setProcessing(null);
-            }
+    if (Platform.OS === 'web') {
+      // Use custom modal for web
+      setConfirmReject(request);
+    } else {
+      // Use native Alert for mobile
+      Alert.alert(
+        'Reject Request',
+        `Are you sure you want to reject ${request.userName}'s request to join ${request.courseName}?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Reject',
+            style: 'destructive',
+            onPress: () => confirmRejectRequest(request),
           },
-        },
-      ]
-    );
+        ]
+      );
+    }
+  };
+
+  const confirmRejectRequest = async (request: JoinRequest) => {
+    try {
+      setProcessing(request.id);
+      setConfirmReject(null);
+      const requestRef = doc(db, 'joinRequests', request.id);
+      await updateDoc(requestRef, {
+        status: 'rejected',
+        rejectedAt: serverTimestamp(),
+      });
+      
+      if (Platform.OS === 'web') {
+        alert('Request rejected successfully');
+      } else {
+        Alert.alert('Request Rejected', 'The join request has been rejected.');
+      }
+    } catch (error) {
+      console.error('Error rejecting request:', error);
+      if (Platform.OS === 'web') {
+        alert('Failed to reject request. Please try again.');
+      } else {
+        Alert.alert('Error', 'Failed to reject request.');
+      }
+    } finally {
+      setProcessing(null);
+    }
   };
 
   const formatDate = (timestamp: any) => {
@@ -233,6 +254,37 @@ export default function JoinRequestsScreen() {
           ))}
         </ScrollView>
       )}
+
+      {/* Confirmation Modal for Web */}
+      <Modal
+        visible={confirmReject !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setConfirmReject(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reject Request</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to reject {confirmReject?.userName}'s request to join {confirmReject?.courseName}?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setConfirmReject(null)}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalRejectButton}
+                onPress={() => confirmReject && confirmRejectRequest(confirmReject)}
+              >
+                <Text style={styles.modalRejectText}>Reject</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -395,5 +447,63 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.black,
     fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 12,
+  },
+  modalMessage: {
+    fontSize: 15,
+    color: Colors.textGray,
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#444',
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalRejectButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FF4444',
+    alignItems: 'center',
+  },
+  modalRejectText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.white,
   },
 });

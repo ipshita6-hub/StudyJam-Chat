@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Google from 'expo-auth-session/providers/google';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
@@ -37,41 +37,15 @@ export default function SignUpScreen() {
     clientId: process.env.EXPO_PUBLIC_FIREBASE_WEB_CLIENT_ID,
   });
 
-  useEffect(() => {
-    if (response?.type === 'success') {
-      const { id_token } = response.params;
-      handleGoogleSignUp(id_token);
-    }
-  }, [response]);
-
-  const handleSignUp = async () => {
-    if (!fullName || !email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
-      return;
-    }
-
-    setLoading(true);
-    const result = await authService.signUp(email, password, fullName);
-    setLoading(false);
-
-    if (result.success) {
-      router.replace('/(tabs)/home');
+  const showAlert = (title: string, message: string) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}\n\n${message}`);
     } else {
-      Alert.alert('Sign Up Failed', result.error);
+      Alert.alert(title, message);
     }
   };
 
-  const handleGoogleSignUp = async (idToken?: string) => {
+  const handleGoogleSignUp = useCallback(async (idToken?: string) => {
     if (!idToken) {
       promptAsync();
       return;
@@ -84,7 +58,41 @@ export default function SignUpScreen() {
     if (result.success) {
       router.replace('/(tabs)/home');
     } else {
-      Alert.alert('Google Sign-Up Failed', result.error);
+      showAlert('Google Sign-Up Failed', result.error || 'An error occurred');
+    }
+  }, [promptAsync, router]);
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { id_token } = response.params;
+      handleGoogleSignUp(id_token);
+    }
+  }, [handleGoogleSignUp, response]);
+
+  const handleSignUp = async () => {
+    if (!fullName || !email || !password || !confirmPassword) {
+      showAlert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      showAlert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (password.length < 6) {
+      showAlert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+    const result = await authService.signUp(email, password, fullName);
+    setLoading(false);
+
+    if (result.success) {
+      router.replace('/(tabs)/home');
+    } else {
+      showAlert('Sign Up Failed', result.error || 'An error occurred during sign up');
     }
   };
 

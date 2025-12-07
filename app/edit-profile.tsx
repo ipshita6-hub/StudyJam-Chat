@@ -23,10 +23,19 @@ export default function EditProfileScreen() {
   const [name, setName] = useState(user?.displayName || '');
   const [loading, setLoading] = useState(false);
 
+  const showAlert = (title: string, message: string, onOk?: () => void) => {
+    if (Platform.OS === 'web') {
+      alert(`${title}\n\n${message}`);
+      if (onOk) onOk();
+    } else {
+      Alert.alert(title, message, onOk ? [{ text: 'OK', onPress: onOk }] : undefined);
+    }
+  };
+
   const handleSave = async () => {
     if (!user) return;
     if (!name.trim()) {
-      Alert.alert('Error', 'Name cannot be empty');
+      showAlert('Error', 'Name cannot be empty');
       return;
     }
 
@@ -35,11 +44,13 @@ export default function EditProfileScreen() {
       await updateProfile(user, {
         displayName: name.trim(),
       });
-      Alert.alert('Success', 'Profile updated successfully', [
-        { text: 'OK', onPress: () => router.back() },
-      ]);
+      
+      // Force reload the user to ensure the changes are reflected
+      await user.reload();
+      
+      showAlert('Success', 'Profile updated successfully', () => router.back());
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      showAlert('Error', error.message || 'Failed to update profile');
     } finally {
       setLoading(false);
     }

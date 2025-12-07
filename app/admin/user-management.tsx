@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, deleteDoc, setDoc } from 'firebase/firestore';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -11,10 +12,13 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '../../constants/colors';
-import { db } from '../../FirebaseConfig';
+import { db, auth } from '../../FirebaseConfig';
 
 interface UserData {
   id: string;
@@ -32,6 +36,15 @@ export default function UserManagementScreen() {
   const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAddUserModal, setShowAddUserModal] = useState(false);
+  const [newUser, setNewUser] = useState({
+    email: '',
+    password: '',
+    displayName: '',
+    role: 'member',
+    course: '',
+  });
+  const [addingUser, setAddingUser] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -81,6 +94,37 @@ export default function UserManagementScreen() {
     }
   };
 
+  const handleAddUser = async () => {
+    if (!newUser.email || !newUser.password || !newUser.displayName) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setAddingUser(true);
+      const userCredential = await createUserWithEmailAndPassword(auth, newUser.email, newUser.password);
+      
+      await setDoc(doc(db, 'users', userCredential.user.uid), {
+        email: newUser.email,
+        displayName: newUser.displayName,
+        role: newUser.role,
+        status: 'Active',
+        courses: newUser.course ? [newUser.course] : [],
+        createdAt: new Date().toISOString(),
+      });
+
+      Alert.alert('Success', 'User added successfully');
+      setShowAddUserModal(false);
+      setNewUser({ email: '', password: '', displayName: '', role: 'member', course: '' });
+      fetchUsers();
+    } catch (error: any) {
+      console.error('Error adding user:', error);
+      Alert.alert('Error', error.message || 'Failed to add user');
+    } finally {
+      setAddingUser(false);
+    }
+  };
+
   const handleEditUser = (user: UserData) => {
     Alert.alert('Edit User', `Edit functionality for ${user.displayName} coming soon!`);
   };
@@ -125,7 +169,7 @@ export default function UserManagementScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Search and Add User */}
+      {/* Search */}
       <View style={styles.searchRow}>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={Colors.textGray} />
@@ -137,9 +181,6 @@ export default function UserManagementScreen() {
             onChangeText={setSearchQuery}
           />
         </View>
-        <TouchableOpacity style={styles.addUserButton}>
-          <Text style={styles.addUserText}>Add User</Text>
-        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -228,6 +269,136 @@ export default function UserManagementScreen() {
           )}
         </ScrollView>
       )}
+
+      {/* Add User Modal */}
+      <Modal
+        visible={showAddUserModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowAddUserModal(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add New User</Text>
+              <TouchableOpacity onPress={() => setShowAddUserModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.white} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalForm} showsVerticalScrollIndicator={false}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Email *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="user@example.com"
+                  placeholderTextColor={Colors.textGray}
+                  value={newUser.email}
+                  onChangeText={(text) => setNewUser({ ...newUser, email: text })}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Enter password"
+                  placeholderTextColor={Colors.textGray}
+                  value={newUser.password}
+                  onChangeText={(text) => setNewUser({ ...newUser, password: text })}
+                  secureTextEntry
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Display Name *</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="John Doe"
+                  placeholderTextColor={Colors.textGray}
+                  value={newUser.displayName}
+                  onChangeText={(text) => setNewUser({ ...newUser, displayName: text })}
+                />
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Role</Text>
+                <View style={styles.roleButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleButton,
+                      newUser.role === 'member' && styles.roleButtonActive,
+                    ]}
+                    onPress={() => setNewUser({ ...newUser, role: 'member' })}
+                  >
+                    <Text
+                      style={[
+                        styles.roleButtonText,
+                        newUser.role === 'member' && styles.roleButtonTextActive,
+                      ]}
+                    >
+                      Member
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleButton,
+                      newUser.role === 'admin' && styles.roleButtonActive,
+                    ]}
+                    onPress={() => setNewUser({ ...newUser, role: 'admin' })}
+                  >
+                    <Text
+                      style={[
+                        styles.roleButtonText,
+                        newUser.role === 'admin' && styles.roleButtonTextActive,
+                      ]}
+                    >
+                      Admin
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Course (Optional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., React Native"
+                  placeholderTextColor={Colors.textGray}
+                  value={newUser.course}
+                  onChangeText={(text) => setNewUser({ ...newUser, course: text })}
+                />
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setShowAddUserModal(false)}
+                disabled={addingUser}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.submitButton, addingUser && styles.submitButtonDisabled]}
+                onPress={handleAddUser}
+                disabled={addingUser}
+              >
+                {addingUser ? (
+                  <ActivityIndicator size="small" color={Colors.black} />
+                ) : (
+                  <Text style={styles.submitButtonText}>Add User</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -428,5 +599,113 @@ const styles = StyleSheet.create({
     color: '#555',
     fontSize: 18,
     marginTop: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#1A1A1A',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#222',
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  modalForm: {
+    padding: 20,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: Colors.white,
+    marginBottom: 8,
+    fontWeight: '500',
+  },
+  input: {
+    backgroundColor: '#222',
+    borderRadius: 8,
+    padding: 12,
+    color: Colors.white,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  roleButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  roleButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#222',
+    borderWidth: 1,
+    borderColor: '#333',
+    alignItems: 'center',
+  },
+  roleButtonActive: {
+    backgroundColor: '#FFD700',
+    borderColor: '#FFD700',
+  },
+  roleButtonText: {
+    fontSize: 14,
+    color: Colors.textGray,
+    fontWeight: '500',
+  },
+  roleButtonTextActive: {
+    color: Colors.black,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 12,
+    padding: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#333',
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: Colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  submitButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    backgroundColor: '#FFD700',
+    alignItems: 'center',
+  },
+  submitButtonDisabled: {
+    opacity: 0.5,
+  },
+  submitButtonText: {
+    color: Colors.black,
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
