@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Native folders (EAS generates these)
+ios/
+android/
+
+# Git
+.git/
+
+# IDE
+.vscode/
+.idea/
+
+# Debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# Local env files
+.env*.local
+
+# Example folder
+app-example/
+
+# Build artifacts
+*.tsbuildinfo
+.metro-health-check*
