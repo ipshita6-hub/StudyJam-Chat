@@ -1,191 +1,167 @@
-# StudyJam — Expo + Firebase
+📚 StudyJamChat – Role-Based Learning Community App
 
-StudyJam is a learning / study-group mobile app built with Expo (React Native) and Firebase (Authentication, Firestore, Storage). This repository contains the app source under the `app/` folder, an admin area under `app/admin`, UI components under `components/`, and service helpers under `services/`.
+StudyJamChat is a real-time, role-based chat and collaboration platform built for structured learning communities. The app enables students and mentors to communicate within approved study groups, while admins manage groups, approvals, announcements, and platform insights.
 
-## Features
+🚀 Key Features
+👥 Role-Based Access Control (RBAC)
 
-- Email/password + Google authentication
-- Password reset flow
-- Course creation, membership, and messaging (Firestore + subcollections)
-- Announcements with admin controls
-- Real-time listeners for courses, messages, announcements and user presence
+The application supports two roles:
 
-## Prerequisites
+Student
 
-- Node.js (14+ recommended)
-- npm or yarn
-- Expo CLI (optional): `npm install -g expo-cli` (or use `npx expo`)
-- A Firebase project with Firestore, Authentication and Storage enabled
+Admin
 
-## Quick start
+Each role has well-defined permissions to ensure security, moderation, and structured communication.
 
-1. Install dependencies
+🎓 Student Capabilities
 
-```bash
-npm install
-```
+Request to join study groups
 
-2. Configure Firebase
+Participate in real-time group chats
 
-- Create a Firebase project and enable Email/Password and Google sign-in (if needed).
-- Create a Web App in Firebase and copy configuration values.
-- Provide the Firebase environment variables used by `FirebaseConfig.ts` (example `.env` variables used by the project):
+React to messages
 
-  - `EXPO_PUBLIC_FIREBASE_API_KEY`
-  - `EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`
-  - `EXPO_PUBLIC_FIREBASE_PROJECT_ID`
-  - `EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET`
-  - `EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`
-  - `EXPO_PUBLIC_FIREBASE_APP_ID`
-  - `EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID` (optional)
+View pinned messages & announcements
 
-Place these in your environment (for Expo, you can use a `.env` and a loader like `expo-constants` or set them in `app.json`/`eas.json` depending on your workflow). `FirebaseConfig.ts` reads them from `process.env` already.
+Request to leave groups
 
-3. Run the app
+🧑‍🏫 Mentor Capabilities
 
-```bash
-npx expo start
-# or run for web
-npx expo start --web
-```
+Engage in group discussions
 
-Open on device/emulator or in the browser.
+Guide and support students
 
-## Important files & structure
+React to messages
 
-- `app/` — main app pages (file-based routing)
-- `app/admin` — admin pages (create-course, dashboard, user management)
-- `components/` — UI components (buttons, inputs, cards)
-- `components/ui` — shared UI primitives
-- `services/` — application services (authService, realtimeService, socketService)
-- `FirebaseConfig.ts` — Firebase initialization (reads env vars)
+Pin important messages for visibility
 
-## Firebase indexes and known issues
+🛠️ Admin Capabilities
 
-### Composite index required (common)
+Create and manage study groups
 
-If you see an error like:
+Approve or reject join/leave requests
 
-```
-FirebaseError: [code=failed-precondition]: The query requires an index. You can create it here: <console-url>
-```
+Post announcements (global or group-specific)
 
-It means a Firestore composite index is required for a query that combines `where()` and `orderBy()` on different fields (for example: `where('isActive','==',true)` + `orderBy('createdAt','desc')`). Open the URL in the error message and click **Create index** — Firestore will build it automatically.
+Pin critical messages
 
-You can also declare the index in `firestore.indexes.json` (or `indexes.json`) for CI:
+Monitor user engagement and platform statistics
 
-```json
-{
-  "indexes": [
-    {
-      "collectionGroup": "announcements",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "isActive", "order": "ASCENDING" },
-        { "fieldPath": "createdAt", "order": "DESCENDING" }
-      ]
-    }
-  ],
-  "fieldOverrides": []
-}
-```
+Moderate conversations
 
-Deploy indexes with the Firebase CLI:
+📌 Core Functionalities
 
-```bash
-npx firebase-tools deploy --only firestore:indexes
-```
+🔐 Secure authentication with Firebase Auth
 
-### BloomFilter error (local cache)
+🧑‍🤝‍🧑 Role-based authorization
 
-If you see logs like `@firebase/firestore: Firestore (12.6.0): BloomFilter error`, this comes from Firestore's local persistence (IndexedDB / SQLite on native). Remedies:
+💬 Real-time messaging using WebSockets
 
-- For web: clear your app's IndexedDB (DevTools → Application → IndexedDB → delete Firestore DB) and reload.
-- For Expo / React Native: uninstall the app or clear app storage for persistence reset.
-- Ensure SDK is updated to the latest patch if the error persists.
+📍 Message pinning
 
-## Development notes
+🎯 Message reactions
 
-- The password reset flow uses `authService.resetPassword(email)` which wraps `sendPasswordResetEmail` from Firebase Auth.
-- Real-time listeners live in `services/realtimeService.ts` and return Firestore `Unsubscribe` functions — always call them when components unmount.
+📢 Announcement system
 
-## Tests & linting
+📊 Admin dashboard with statistics
 
-- This project includes ESLint configuration. Run linting with your usual commands (e.g. `npm run lint`) if present in `package.json`.
+✅ Approval-based group access workflow
 
-## Deployment
+🧱 Tech Stack
 
-- Use Expo's build and publish flows or EAS if you target production mobile builds.
-- Keep Firebase `indexes.json` in source control and deploy indexes as part of CI.
+Frontend
 
-## Troubleshooting
+React
 
-- If a screen crashes on a Firebase call, check Metro / browser console for the full stack and the Firestore index URL.
-- For auth issues, confirm the Firebase web client ID and OAuth setup for Google sign-in.
+TypeScript
 
-## Contributing
+Backend
 
-Open issues or PRs. Small, focused changes and tests are appreciated.
+Node.js
 
-## References
+Express.js
 
-- `FirebaseConfig.ts` — Firebase initialization and env var usage
-- `services/authService.ts` — auth helpers (signIn, signUp, resetPassword)
-- `services/realtimeService.ts` — Firestore listeners and data operations
+WebSockets (real-time communication)
 
----
-If you want, I can also:
+Authentication
 
-- Add a `.env.example` with variable names,
-- Add the `firestore.indexes.json` file to the repo,
-- Or generate a short developer guide for onboarding contributors.
-# Welcome to your Expo app 👋
+Firebase Authentication
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Database
 
-## Get started
+Firebase / Firestore (if used)
 
-1. Install dependencies
+🗂️ Project Structure (Example)
+studyjamchat/
+│
+├── client/              # React + TypeScript frontend
+├── server/              # Node.js backend
+│   ├── websocket/
+│   ├── routes/
+│   ├── controllers/
+│   ├── middleware/
+│   └── utils/
+│
+├── README.md
+└── package.json
 
-   ```bash
-   npm install
-   ```
+🔄 Application Flow
 
-2. Start the app
+Admin creates study groups
 
-   ```bash
-   npx expo start
-   ```
+Students send join requests
 
-In the output, you'll find options to open the app in a
+Admin approves or rejects requests
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+Mentors and students communicate via real-time chat
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+Important messages are pinned
 
-## Get a fresh project
+Announcements are shared by admin
 
-When you're ready, run:
+Admin tracks engagement through statistics
 
-```bash
-npm run reset-project
-```
+🎯 Use Cases
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+College study groups
 
-## Learn more
+Mentorship programs
 
-To learn more about developing your project with Expo, look at the following resources:
+Coding communities
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+Bootcamps and workshops
 
-## Join the community
+Peer-to-peer learning platforms
 
-Join our community of developers creating universal apps.
+🧠 What I Learned
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+Implementing RBAC in real-world applications
+
+Integrating Firebase Authentication
+
+Building real-time communication with WebSockets
+
+Designing admin moderation workflows
+
+Developing a scalable full-stack app using TypeScript
+
+📈 Future Enhancements
+
+🔔 Push notifications
+
+📁 File sharing inside chats
+
+📹 Voice/video rooms
+
+📱 Mobile app version
+
+🤖 AI-powered study assistant
+
+🤝 Contributing
+
+Contributions are welcome!
+Feel free to fork the repository and submit pull requests.
+
+📄 License
+
+This project is built for educational and learning purposes.
